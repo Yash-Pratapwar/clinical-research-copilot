@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 
-import fitz
+import pymupdf
 from docx import Document
 from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from .config import MAX_FILE_BYTES
+from .pdf_layout import parse_pdf_layout
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,11 @@ class DocumentPart:
     section: str
     location: str
     page: int  # 0 for DOCX: original physical page cannot be established reliably
+    section_id: str = ""
+    paragraph_index: int = 0
+    bbox: tuple[float, ...] = ()
+    block_type: str = "paragraph"
+    table_rows: tuple[tuple[str, ...], ...] = ()
 
 
 def validate_upload(filename: str, payload: bytes) -> str:
@@ -45,50 +51,26 @@ def _tidy(s: str) -> str:
     return re.sub(r"[ \t]+", " ", s.replace("\x00", "")).strip()
 
 
-def _section_heading(line: str) -> bool:
-    txt = _tidy(line)
-    # Keep only fairly short headings; normal sentences beginning with numerals are ignored.
-    if len(txt) > 100:
-        return False
-    if re.match(r"^(?:section\s+)?\d+(?:\.\d+){0,3}\s*[:.)-]?\s+[A-Za-z]", txt, re.I):
-        return True
-    return False
-
-
 def _load_pdf(filename: str, payload: bytes) -> list[DocumentPart]:
     parts: list[DocumentPart] = []
     heading = "Unsectioned text"
+    section_number = 0
+    heading_id = "section-000000"
     try:
-        with fitz.open(stream=payload, filetype="pdf") as pdf:
+        with pymupdf.open(stream=payload, filetype="pdf") as pdf:
             if pdf.is_encrypted:
                 raise ValueError("Password-protected PDFs are not supported.")
-            for page_index, page in enumerate(pdf):
-                text = page.get_text("text", sort=True).strip()
-                if not text:
-                    continue
-                current_lines: list[str] = []
-                current_section = heading
-
-                def flush():
-                    if current_lines:
-                        parts.append(DocumentPart(
-                            text="\n".join(current_lines), filename=filename,
-                            file_type="pdf", section=current_section,
-                            location=f"Page {page_index + 1}", page=page_index + 1,
-                        ))
-
-                for raw_line in text.splitlines():
-                    line = _tidy(raw_line)
-                    if not line:
-                        continue
-                    if _section_heading(line):
-                        flush()
-                        current_lines = [line]
-                        current_section = line[:110]
-                        heading = current_section
-                    else:
-                        current_lines.append(line)
-                flush()
+            for page_index, items in enumerate(parse_pdf_layout(pdf)):
+                for item in items:
+                    if item.kind == "heading":
+                        heading = item.text[:110]
+                        section_number += 1
+                        heading_id = f"section-{section_number:06d}"
+                    parts.append(DocumentPart(
+                        text=item.text, filename=filename, file_type="pdf",
+                        section=heading, location=f"Page {page_index + 1}",
+                        page=page_index + 1, section_id=heading_id,
+                        bbox=item.bbox, block_type=item.kind, table_rows=item.rows))
     except (RuntimeError, ValueError) as exc:
         raise ValueError(f"Unable to read PDF: {exc}") from exc
     if not parts:
@@ -114,23 +96,31 @@ def _load_docx(filename: str, payload: bytes) -> list[DocumentPart]:
     parts = []
     heading = "Unsectioned text"
     paragraph_number = 0
+    section_number = 0
     for block in _iter_docx_blocks(document):
         if isinstance(block, Paragraph):
             paragraph_number += 1
             text = _tidy(block.text)
             if not text:
                 continue
-            if block.style is not None and block.style.name.lower().startswith("heading"):
+            is_heading = block.style is not None and block.style.name.lower().startswith("heading")
+            if is_heading:
                 heading = text[:110]
+                section_number += 1
             parts.append(DocumentPart(text=text, filename=filename, file_type="docx",
-                                      section=heading, location=f"Paragraph {paragraph_number}", page=0))
+                                      section=heading, location=f"Paragraph {paragraph_number}", page=0,
+                                      section_id=f"section-{section_number:06d}",
+                                      block_type="heading" if is_heading else "paragraph"))
         else:
             rows = [" | ".join(_tidy(cell.text) for cell in row.cells)
                     for row in block.rows]
             content = "\n".join(r for r in rows if r.strip(" |"))
             if content:
                 parts.append(DocumentPart(text=content, filename=filename, file_type="docx",
-                                          section=heading, location=f"Table near paragraph {paragraph_number}", page=0))
+                                          section=heading, location=f"Table near paragraph {paragraph_number}", page=0,
+                                          section_id=f"section-{section_number:06d}", block_type="table",
+                                          table_rows=tuple(tuple(_tidy(c.text) for c in row.cells)
+                                                           for row in block.rows)))
     if not parts:
         raise ValueError("No readable text found in the DOCX.")
     return parts
@@ -138,6 +128,15 @@ def _load_docx(filename: str, payload: bytes) -> list[DocumentPart]:
 
 def extract_document(filename: str, payload: bytes) -> list[DocumentPart]:
     ext = validate_upload(filename, payload)
-    if ext == ".pdf":
-        return _load_pdf(filename, payload)
-    return _load_docx(filename, payload)
+    parts = _load_pdf(filename, payload) if ext == ".pdf" else _load_docx(filename, payload)
+    section_number = 0
+    previous = None
+    ordered = []
+    for position, part in enumerate(parts, 1):
+        identity = part.section_id or part.section
+        if identity != previous:
+            section_number += 1
+            previous = identity
+        ordered.append(replace(part, section_id=f"section-{section_number:06d}",
+                               paragraph_index=position))
+    return ordered

@@ -47,6 +47,8 @@ def make_graph(index: DocumentIndex):
         def _run(state: CopilotState) -> CopilotState:
             if state.get('clarification'):
                 return {'evidence': []}
+            if mode == "compare" and len(state.get("resolved_documents", [])) == 2 and hasattr(index, "compare_versions"):
+                return {"evidence": []}
             return {"evidence": index.retrieve(state["question"], mode=mode,
                         filenames=state.get('resolved_documents') or None)}
         return _run
@@ -54,6 +56,28 @@ def make_graph(index: DocumentIndex):
     def generate(state: CopilotState) -> CopilotState:
         if state.get('clarification'):
             return {'answer': state['clarification'] + '\n\nAvailable matches: ' + ', '.join(state['candidates'])}
+        if state["mode"] == "compare" and len(state.get("resolved_documents", [])) == 2 and hasattr(index, "compare_versions"):
+            versions = {v["label"]: v for v in index.list_versions()}
+            left, right = [versions[name] for name in state["resolved_documents"]]
+            try:
+                changes = index.compare_versions(left["version_id"], right["version_id"])
+            except ValueError as exc:
+                return {"answer": str(exc)}
+            heading = f'Comparing {left["label"]} to {right["label"]}.'
+            if not changes:
+                return {"answer": heading + "\n\nNo extracted text differences."}
+            lines = [heading, "Exact extracted-text changes (review originals for layout and image changes):"]
+            for change in changes:
+                before, after = change["before"], change["after"]
+                if change["ambiguous"]:
+                    lines.append("Repeated content has multiple possible matches; review source locations.")
+                lines.append(f'### {change["kind"].title()}: {(after or before)["section"]}')
+                for label, part, version in (("Before", before, left), ("After", after, right)):
+                    location = ", ".join(part["locations"]) if part else "Absent"
+                    lines.append(f'**{label}: {version["label"]} - {location}**')
+                    lines.append(part["text"] if part else "(Absent)")
+                lines.append("~~~~diff\n" + change["diff"] + "\n~~~~")
+            return {"answer": "\n\n".join(lines)}
         if state.get('resolved_documents'):
             present = {e.metadata['filename'] for e in state.get('evidence', [])}
             missing = set(state['resolved_documents']) - present

@@ -69,3 +69,27 @@ def test_filename_reply_resumes_question(monkeypatch):
         assert app.session_state['document_scope'] == [files[1], files[2]]
     finally:
         st.cache_resource.clear()
+
+
+def test_version_comparison_view(tmp_path, monkeypatch):
+    from copilot.index import DocumentIndex
+    from test_index import FakeEmbeddings, docx_bytes
+    index = DocumentIndex(path=tmp_path / 'chroma', embedder=FakeEmbeddings())
+    index.add_file('Protocol_v1.docx', docx_bytes('Report within 24 hours.'))
+    index.add_file('Protocol_v2.docx', docx_bytes('Report within 48 hours.'))
+    monkeypatch.setattr('copilot.index.DocumentIndex', lambda: index)
+    st.cache_resource.clear()
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=20)
+    try:
+        app.run()
+        assert not app.exception
+        next(b for b in app.button if b.label == 'Compare complete versions').click().run()
+        assert not app.exception
+        texts = [item.value for item in app.text]
+        assert any('24 hours' in text for text in texts)
+        assert any('48 hours' in text for text in texts)
+        app.chat_input[0].set_value('Compare Protocol_v1.docx and Protocol_v2.docx').run()
+        assert not app.exception
+        assert '24 hours' in app.session_state['messages'][-1]['text']
+    finally:
+        st.cache_resource.clear()

@@ -28,16 +28,26 @@ with st.sidebar:
     st.caption("Embeddings and text are stored on this computer, not uploaded to a paid API.")
     uploaded = st.file_uploader("Upload PDF or DOCX documents", type=["pdf", "docx"],
                                 accept_multiple_files=True)
+    versions = get_index().list_versions() if hasattr(get_index(), "list_versions") else []
+    families = {v["document_id"]: v["filename"] for v in versions}
+    family = st.selectbox("Version history", ["Detect from filename"] + list(families),
+                          format_func=lambda value: families.get(value, value))
+    version_label = st.text_input("Version label (optional, one file at a time)")
     if st.button("Index selected documents", type="primary", use_container_width=True,
                  disabled=not uploaded):
         for item in uploaded or []:
             try:
                 with st.spinner(f"Indexing {item.name} (first run downloads the embedding model)..."):
-                    num_chunks, added = get_index().add_file(item.name, item.getvalue())
+                    if version_label.strip() and len(uploaded) != 1:
+                        raise ValueError("Upload one file when supplying a version label.")
+                    num_chunks, added = get_index().add_file(
+                        item.name, item.getvalue(),
+                        document_id=None if family == "Detect from filename" else family,
+                        version_label=version_label.strip() or None)
                 if added:
-                    st.success(f"Indexed {item.name}: {num_chunks} chunks")
+                    st.success(f"Saved version {item.name}: {num_chunks} searchable chunks")
                 else:
-                    st.info(f"Skipped duplicate: {item.name}")
+                    st.info(f"Already saved: {item.name}. Enter a new version label to record identical content again.")
             except Exception as exc:
                 st.error(f"{item.name}: {exc}")
 
@@ -54,6 +64,49 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.caption("This prototype has no authentication or access-control layer. Do not expose it publicly.")
+
+if hasattr(get_index(), "list_versions"):
+    versions = get_index().list_versions()
+    with st.expander("Version history and exact comparison"):
+        st.caption("Filename version markers suggest a history. Select an existing history during upload to link renamed files explicitly.")
+        if versions:
+            st.dataframe([{
+                "Document": v["document_id"], "Version": v["version_label"],
+                "File": v["label"], "Uploaded (UTC)": v["uploaded_at"],
+                "Content hash": v["sha256"], "Original available": bool(v["original"]),
+            } for v in versions], hide_index=True)
+            by_id = {v["version_id"]: v for v in versions}
+            before = st.selectbox("Before version", list(by_id),
+                                  format_func=lambda key: by_id[key]["label"])
+            after = st.selectbox("After version", list(by_id), index=len(versions) - 1,
+                                 format_func=lambda key: by_id[key]["label"])
+            if by_id[before]["original"]:
+                st.download_button("Download before original", get_index().original_file(before),
+                                   file_name=by_id[before]["filename"])
+            if by_id[after]["original"]:
+                st.download_button("Download after original", get_index().original_file(after),
+                                   file_name=by_id[after]["filename"])
+            if st.button("Compare complete versions"):
+                try:
+                    changes = get_index().compare_versions(before, after)
+                    if not changes:
+                        st.info("No extracted text differences.")
+                    for change in changes:
+                        left, right = change["before"], change["after"]
+                        st.caption("Matched by: " + change["match_method"].replace("_", " "))
+                        if change["ambiguous"]:
+                            st.warning("Repeated content has multiple possible matches; review the source locations.")
+                        st.markdown(f'**{change["kind"].title()}: {(right or left)["section"]}**')
+                        col1, col2 = st.columns(2)
+                        for col, part, label in ((col1, left, "Before"), (col2, right, "After")):
+                            with col:
+                                st.caption(label + ": " + (", ".join(part["locations"]) if part else "Absent"))
+                                st.text(part["text"] if part else "")
+                        st.code(change["diff"], language="diff")
+                        if change["word_changes"]:
+                            st.dataframe(change["word_changes"], hide_index=True)
+                except ValueError as exc:
+                    st.error(str(exc))
 
 st.subheader("Ask questions across your documents")
 examples = [

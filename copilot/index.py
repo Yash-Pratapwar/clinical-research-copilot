@@ -9,9 +9,12 @@ from typing import Any
 import chromadb
 from chromadb.config import Settings
 
-from .chunking import chunk_parts
+from .chunking import CHUNK_SCHEMA, chunk_parts
 from .config import COLLECTION_NAME, DB_PATH, MIN_SIMILARITY
-from .documents import extract_document
+from .documents import DocumentPart, extract_document
+from .pdf_layout import PDF_LAYOUT_SCHEMA
+from .versions import VersionStore
+from .comparison import compare_parts
 from .embeddings import LocalEmbeddings
 
 
@@ -30,58 +33,141 @@ class DocumentIndex:
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
         self.embedder = embedder if embedder is not None else LocalEmbeddings()
+        self.store = VersionStore(Path(path) / "history")
+        self._migrate_legacy()
+        # Originals and version IDs remain immutable. A PDF extraction upgrade
+        # refreshes derived full text and search chunks together; a chunk-only
+        # upgrade never changes comparison input.
+        for digest in {v["sha256"] for v in self.list_versions() if v["original"]}:
+            version = next(v for v in self.list_versions() if v["sha256"] == digest)
+            upgrade_pdf = (Path(version["filename"]).suffix.lower() == ".pdf"
+                           and self.store.extraction_schema(digest) != PDF_LAYOUT_SCHEMA)
+            if self.store.chunk_schema(digest) != CHUNK_SCHEMA or upgrade_pdf:
+                parts = extract_document(version["filename"], (self.store.blobs / digest).read_bytes())
+                self._index_content(digest, parts)
+                if upgrade_pdf:
+                    self.store.update_extraction(digest, parts, PDF_LAYOUT_SCHEMA)
 
-    def add_file(self, filename: str, payload: bytes) -> tuple[int, bool]:
+    def _migrate_legacy(self):
+        # Preserve existing indexes. Original bytes cannot be recovered from old chunks.
+        known = {v["sha256"] for v in self.store.versions()}
+        records = self.collection.get(include=["documents", "metadatas"])
+        grouped = {}
+        for cid, text, meta in zip(records["ids"], records["documents"], records["metadatas"]):
+            if meta["sha256"] not in known:
+                grouped.setdefault(meta["sha256"], []).append((cid, text, meta))
+        for digest, rows in grouped.items():
+            rows.sort(key=lambda row: int(row[0].rsplit("_", 1)[-1]))
+            parts = [DocumentPart(text, meta["filename"], meta["file_type"],
+                     meta["section"], meta["location"], meta["page"]) for _, text, meta in rows]
+            self.store.save_content(digest, parts, len(rows))
+            self.store.add(rows[0][2]["filename"], digest)
+
+    def list_versions(self, document_id=None):
+        return [v for v in self.store.versions()
+                if document_id is None or v["document_id"] == document_id]
+
+    def compare_versions(self, before_id, after_id):
+        versions = {v["version_id"]: v for v in self.list_versions()}
+        if before_id not in versions or after_id not in versions:
+            raise ValueError("Unknown document version")
+        left, right = versions[before_id], versions[after_id]
+        if left["sha256"] == right["sha256"]:
+            return []
+        if not left["original"] or not right["original"]:
+            raise ValueError("Re-upload legacy versions before exact comparison; their original text was not retained.")
+        return compare_parts(self.store.parts(before_id), self.store.parts(after_id))
+
+    def original_file(self, version_id):
+        version = next((v for v in self.list_versions() if v["version_id"] == version_id), None)
+        if version is None or not version["original"]:
+            raise ValueError("Original file is unavailable for this version.")
+        return (self.store.blobs / version["sha256"]).read_bytes()
+
+    def add_file(self, filename: str, payload: bytes, *, document_id=None,
+                 version_label=None) -> tuple[int, bool]:
         filename = Path(filename.replace("\\", "/")).name
         if not filename or filename in {".", ".."}:
             raise ValueError("Invalid filename")
         parts = extract_document(filename, payload)
         digest = hashlib.sha256(payload).hexdigest()
-        existing = self.collection.get(where={"sha256": digest}, limit=1)
-        if existing.get("ids"):
-            return 0, False
-        # If the same name is re-uploaded with different content, replace old chunks.
-        old = self.collection.get(where={"filename": filename}, include=[])
-        chunks = chunk_parts(parts)
+        # Validate version labels before writing content.
+        group = self.list_versions(document_id) if document_id else []
+        if version_label and any(v["version_label"] == version_label for v in group):
+            raise ValueError("That version label already exists for this document.")
+        content = self.store.content(digest)
+        if content is None:
+            count = self._index_content(digest, parts)
+            self.store.save_content(digest, parts, count, payload)
+            self.store.update_extraction(digest, parts, PDF_LAYOUT_SCHEMA if filename.lower().endswith(".pdf") else "docx-native-v1")
+            with self.store.connect() as db:
+                db.execute("UPDATE contents SET chunk_schema=? WHERE sha256=?", (CHUNK_SCHEMA, digest))
+        else:
+            count = content[1]
+            if not content[2]:
+                # Recover exact extraction and original bytes for a legacy upload.
+                import json
+                from dataclasses import asdict
+                (self.store.blobs / digest).write_bytes(payload)
+                count = self._index_content(digest, parts)
+                with self.store.connect() as db:
+                    db.execute("UPDATE contents SET parts=?, original=1 WHERE sha256=?",
+                               (json.dumps([asdict(p) for p in parts]), digest))
+                self.store.update_extraction(digest, parts, PDF_LAYOUT_SCHEMA if filename.lower().endswith(".pdf") else "docx-native-v1")
+        added = self.store.add(filename, digest, document_id, version_label)
+        return (count, True) if added else (0, False)
+
+    def _index_content(self, digest, parts):
+        # Inject the actual embedding tokenizer; fake embedders used in offline
+        # tests supply their own tokenizer and matching model budget.
+        tokenizer = self.embedder.tokenizer
+        from .config import CHUNK_TOKENS, CHUNK_OVERLAP
+        budget = min(CHUNK_TOKENS, self.embedder.max_seq_length)
+        chunks = chunk_parts(parts, size=budget, overlap=min(CHUNK_OVERLAP, budget // 4),
+                             tokenizer=tokenizer)
         if not chunks:
             raise ValueError("The uploaded document did not produce any searchable chunks.")
-        # Batch to limit 8 GB memory usage.
+        old_ids = self.collection.get(where={"sha256": digest}, include=[])["ids"]
+        new_ids = []
         for offset in range(0, len(chunks), 24):
             batch = chunks[offset:offset + 24]
-            embeddings = self.embedder.embed([c.text for c in batch])
-            self.collection.add(
-                ids=[f"{digest[:20]}_{offset + i}" for i in range(len(batch))],
-                embeddings=embeddings,
+            ids = [f"{digest[:20]}_{CHUNK_SCHEMA}_{offset + i}" for i in range(len(batch))]
+            self.collection.upsert(
+                ids=ids, embeddings=self.embedder.embed([c.text for c in batch]),
                 documents=[c.text for c in batch],
                 metadatas=[{
                     "filename": c.filename, "file_type": c.file_type,
-                    "section": c.section, "location": c.location,
-                    "page": c.page, "sha256": digest,
-                } for c in batch],
-            )
-        if old["ids"]:
-            self.collection.delete(ids=old["ids"])
-        return len(chunks), True
+                    "section": c.section, "section_id": c.section_id,
+                    "location": c.location, "page": c.page, "sha256": digest,
+                    "chunk_index": c.chunk_index, "paragraph_start": c.paragraph_start,
+                    "paragraph_end": c.paragraph_end, "paragraph_split": c.paragraph_split,
+                    "token_count": c.token_count, "chunk_schema": CHUNK_SCHEMA,
+                    "block_type": c.block_type, "source_regions": c.source_regions,
+                } for c in batch])
+            new_ids.extend(ids)
+        stale = set(old_ids) - set(new_ids)
+        if stale:
+            self.collection.delete(ids=list(stale))
+        with self.store.connect() as db:
+            db.execute("UPDATE contents SET chunks=?, chunk_schema=? WHERE sha256=?",
+                       (len(chunks), CHUNK_SCHEMA, digest))
+        return len(chunks)
 
     def list_files(self) -> list[dict[str, Any]]:
-        result = self.collection.get(include=["metadatas"])
-        by_name: dict[str, dict[str, Any]] = {}
-        for meta in result.get("metadatas") or []:
-            if not meta:
-                continue
-            key = str(meta["filename"])
-            if key not in by_name:
-                by_name[key] = {"filename": key, "sha256": meta["sha256"], "chunks": 0}
-            by_name[key]["chunks"] += 1
-        return sorted(by_name.values(), key=lambda d: d["filename"].lower())
+        return [dict(v, filename=v["label"]) for v in self.list_versions()]
 
     def clear(self) -> None:
+        self.store.clear()
         self.client.delete_collection(name=COLLECTION_NAME)
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
 
     def query(self, question: str, limit: int = 8,
               filename: str | None = None, threshold: float = MIN_SIMILARITY) -> list[Evidence]:
+        versions = self.list_versions()
+        selected = [v for v in versions if filename is None or v["label"] == filename]
+        if not selected:
+            return []
         count = self.collection.count()
         if not count:
             return []
@@ -89,7 +175,7 @@ class DocumentIndex:
         kwargs = {"query_embeddings": [vector], "n_results": min(count, limit),
                   "include": ["documents", "metadatas", "distances"]}
         if filename:
-            kwargs["where"] = {"filename": filename}
+            kwargs["where"] = {"sha256": selected[0]["sha256"]}
         try:
             result = self.collection.query(**kwargs)
         except Exception:
@@ -104,8 +190,18 @@ class DocumentIndex:
         ):
             score = max(-1.0, min(1.0, 1.0 - float(distance)))
             if score >= threshold:
-                matches.append(Evidence(text=txt, metadata=meta,
-                                        similarity=score, chunk_id=cid))
+                for version in selected:
+                    if version["sha256"] != meta["sha256"]:
+                        continue
+                    metadata = dict(meta, filename=version["label"],
+                                    document_id=version["document_id"],
+                                    version_id=version["version_id"],
+                                    version_label=version["version_label"])
+                    if meta.get("section_id"):
+                        metadata["section_id"] = version["version_id"] + ":" + meta["section_id"]
+                    matches.append(Evidence(text=txt, metadata=metadata,
+                                            similarity=score,
+                                            chunk_id=f'{version["version_id"]}:{cid}'))
         return matches
 
     def retrieve(self, question: str, *, mode: str = "lookup", limit: int = 9,

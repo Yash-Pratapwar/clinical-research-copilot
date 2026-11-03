@@ -2,11 +2,12 @@
 import io
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pytest
 from docx import Document
 
 from copilot.chunking import chunk_parts
+from test_index import FakeTokenizer
 from copilot.documents import DocumentPart, extract_document, validate_upload
 from copilot.llm import sanitized_citations
 from copilot.workflow import choose_tool
@@ -21,10 +22,10 @@ def test_routes():
 
 def test_chunks_preserve_page():
     parts = [DocumentPart('word ' * 340, 'protocol.pdf', 'pdf', '4.1 Inclusion', 'Page 3', 3)]
-    chunks = chunk_parts(parts, size=100, overlap=20)
+    chunks = chunk_parts(parts, size=100, overlap=20, tokenizer=FakeTokenizer())
     assert len(chunks) > 3
     assert all(c.page == 3 and c.location == 'Page 3' for c in chunks)
-    assert len(chunks[0].text.split()) == 100
+    assert chunks[0].token_count <= 100
 
 
 def test_docx_paragraph_locations():
@@ -39,15 +40,15 @@ def test_docx_paragraph_locations():
 
 
 def test_pdf_page():
-    p = fitz.open()
+    p = pymupdf.open()
     page = p.new_page()
     page.insert_text((70, 80), '4.1 Inclusion Criteria')
     page.insert_text((70, 110), 'Patients must be 18 to 65 years.')
     content = p.tobytes()
     p.close()
     parts = extract_document('study.pdf', content)
-    assert len(parts) == 1
-    assert parts[0].page == 1
+    assert len(parts) >= 1
+    assert all(p.page == 1 for p in parts)
     assert parts[0].section == '4.1 Inclusion Criteria'
 
 

@@ -13,6 +13,14 @@ def _model():
 
 
 class LocalEmbeddings:
+    @property
+    def tokenizer(self):
+        return _model().tokenizer
+
+    @property
+    def max_seq_length(self):
+        return _model().max_seq_length
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []

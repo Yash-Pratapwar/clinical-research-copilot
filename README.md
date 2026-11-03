@@ -121,13 +121,13 @@ prove clinical correctness.
 ## How it works
 
 ```text
-Documents: PDF/DOCX -> extract & preserve location -> 145-word chunks, 30-word overlap
+Documents: PDF/DOCX -> ordered paragraphs/blocks -> tokenizer-bounded paragraph chunks
           -> MiniLM embeddings (CPU) -> local ChromaDB + source metadata
 
 Question: User -> LangGraph intent router
                   |-- lookup   -> semantic retrieval
                   |-- summary  -> expanded retrieval
-                  |-- compare  -> version-oriented retrieval, document diversity
+                  |-- compare  -> full-text diff for two versions; retrieval for larger selections
                   |-- safety   -> protocol + monitoring + deviation retrieval
           -> evidence prompt -> Ollama qwen2.5:1.5b -> answer + [S#] sources
           -> UI renders source excerpt, filename and location from metadata
@@ -181,6 +181,34 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 - [ ] Record `docs/DEMO_SCRIPT.md` as a 5–10 minute screen recording.
 - [ ] Do a fresh-machine setup test if possible.
 
+## Document version history
+
+Uploads create immutable version records in `.chroma/history/versions.sqlite3`.
+Changed uploads with the same filename preserve previous versions. Filename markers
+such as `Protocol_v1_generated` and `Protocol_v2_generated` suggest a shared history.
+Select an existing **Version history** during upload to link renamed files or
+filenames with spelling differences explicitly.
+
+Identical file bytes share one SHA-256-addressed original in
+`.chroma/history/sources` and one set of Chroma chunks and embeddings. Each version
+still has its own ID, label, timestamp and document identity. Re-uploading the latest
+identical file without a label is a no-op; enter a fresh version label to record
+another version with identical content. Different filenames are recorded even when
+their bytes match. Equal extracted text in different binary files has different hashes.
+
+Open **Version history and exact comparison**, select Before and After, and click
+**Compare complete versions**. The comparison aligns full extracted sections and
+shows additions, removals, modifications, section moves, source locations and word
+changes. Two-document chat comparisons also use full text instead of vector search
+or an LLM. Section alignment first reserves normalized section-body SHA-256 matches, excluding\na leading heading line. Repeated bodies use headings, numeric parent sections,\nunique neighboring bodies and order to resolve identity; unresolved ties are flagged.\nRemaining sections use heading matching and then text similarity, followed by exact\nline and word differences. Hashes preserve case, numbers and punctuation;
+check ambiguous matches against the downloadable originals. Formatting and images
+are outside this text comparison.
+
+Existing Chroma records are imported automatically. Their original files and full
+pre-chunking text were not retained by the previous app: re-upload those files to
+enable exact comparison and original downloads. Previously overwritten content
+cannot be recovered. Clearing the index also clears version history and originals.
+
 ## Future enhancements
 
 Study-specific collections, BM25 hybrid retrieval, calibrated retrieval evaluation,
@@ -209,3 +237,33 @@ embedding run caches model weights. No paid account is needed for public model.
 **DOCX source shows paragraph rather than page:** expected and intentional.
 
 **Garbage PDF text:** likely a scanned document. Use native digital PDFs for demo.
+
+
+## Paragraph-aware retrieval chunks
+
+Chunks now pack complete paragraphs under the same section, up to 256 embedding
+tokens including special tokens (or the model limit if lower). Oversized paragraphs
+split at sentences, then words if necessary. Up to 32 tokens of complete trailing
+units overlap when space permits. PDF chunks stay within a page; PyMuPDF text blocks
+approximate paragraphs. Metadata records section identity, paragraph ranges, chunk
+order and token counts. Saved originals are automatically re-chunked after a chunk
+schema change without altering version records or stored full-text comparison input.
+
+See [enhancements.md](enhancements.md) for all changes, benefits, migration behavior,
+limitations, and the distinction between search chunks and complete-version comparison.
+
+
+## PDF layout reconstruction
+
+PDF extraction now uses line/span geometry, spacing, indentation and font cues to
+reconstruct paragraphs and detect headings. Basic columns are read in order;
+detected ruled tables retain rows/cells; list items retain continuation lines.
+Repeated margin headers/footers are retained as typed source records but excluded
+from search and version comparisons. Page coordinates and source regions are
+preserved for traceability.
+
+Saved PDF originals are automatically re-parsed and re-indexed after an extraction
+schema change, without creating new versions or changing the original files.
+This improves derived comparison text as well as retrieval. Borderless tables,
+complex layouts and scanned PDFs remain limitations; OCR is not included.
+See [enhancements.md](enhancements.md) for thresholds, behavior and tradeoffs.
