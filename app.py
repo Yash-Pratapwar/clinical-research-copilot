@@ -7,6 +7,7 @@ from copilot.config import MODEL_NAME
 from copilot.index import DocumentIndex
 from copilot.workflow import make_graph
 from copilot.resolution import named_documents
+from copilot.help import general_response
 
 st.set_page_config(page_title="Clinical Research AI Copilot", page_icon="🧬", layout="wide")
 
@@ -119,6 +120,7 @@ if hasattr(get_index(), "list_versions"):
 
 st.subheader("Ask questions across your documents")
 examples = [
+    "What can you do?",
     "What are the inclusion and exclusion criteria?",
     "What are the SAE reporting requirements?",
     "Which monitoring deviations may impact patient safety?",
@@ -144,12 +146,12 @@ for msg in st.session_state.messages:
             st.caption('Selected documents: ' + ', '.join(msg['documents']))
 
 filenames = [f['filename'] for f in files]
-scope = st.session_state.get('document_scope', [])
-if scope:
-    st.caption('Current document selection: ' + ', '.join(scope))
-    if st.button('Search the whole library instead'):
-        st.session_state.pop('document_scope', None)
-        st.rerun()
+
+
+def deselect_documents():
+    st.session_state.pop('document_scope', None)
+    st.session_state.pop('pending_question', None)
+    st.session_state.pop('clarification_documents', None)
 
 resume_question = None
 selection_confirmed = False
@@ -194,7 +196,11 @@ if question:
         st.markdown(display_question)
     with st.chat_message("assistant"):
         documents = []
-        if not get_index().list_files():
+        help_answer = general_response(question)
+        if help_answer is not None:
+            answer, sources, mode = help_answer, [], 'help'
+            st.markdown(answer)
+        elif not get_index().list_files():
             answer = "Upload and index at least one PDF or DOCX first."
             sources, mode = [], None
             st.info(answer)
@@ -236,6 +242,14 @@ if question:
     # Render the clarification controls immediately after the first response.
     if st.session_state.get('pending_question'):
         st.rerun()
+
+scope = st.session_state.get('document_scope', [])
+if scope:
+    st.info('Your next question will search only these selected documents: ' + ', '.join(scope))
+    st.button('Deselect documents', on_click=deselect_documents,
+              help='Clear the selection and any pending document question. Your next question will search the whole indexed library.')
+else:
+    st.caption('Search scope: all indexed documents.')
 
 st.divider()
 st.caption("Citation references are retrieved metadata, not model-generated page numbers. Similarity is not a factuality score; verify claims in original documents.")

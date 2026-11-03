@@ -274,6 +274,26 @@ No full-suite run or performance benchmark was performed for this cache fix.
 
 ## Verification
 
+### General app questions
+
+Document scope now appears after the latest answer, including immediately after
+selecting documents. **Deselect documents** clears the remembered scope, pending
+question, and clarification selection. The next question searches the full indexed
+library; previous answers retain their historical document labels. UI regression
+coverage verifies deselection and unfiltered retrieval on the next question.
+
+Standalone capabilities questions (for example, "What can you do?"), getting-started
+questions, and greetings now receive predefined local responses. They work before
+uploading documents and bypass document resolution, retrieval, and Ollama in both
+the chat UI and workflow. The example selector includes a capabilities question.
+Help preserves selected documents and any pending clarification question.
+
+Matching is conservative and applies to whole utterances; unrecognized questions
+retain the existing document workflow. No broad unrelated-topic classifier was
+added. Validation: **61 tests passed** across help, routing, core, document
+resolution, and clarification UI tests, including help with and without indexed
+documents and bypass checks for retrieval and generation.
+
 Tests cover existing routing and UI behavior; immutable versions; byte-identical
 content sharing and correct citations; original downloads; legacy recovery;
 full-text comparisons that bypass search and the LLM; moved/renamed/repeated bodies;

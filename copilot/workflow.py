@@ -9,6 +9,7 @@ from .index import DocumentIndex, Evidence
 from .llm import answer_question
 from .resolution import resolve_documents
 from .routing import detect_intent
+from .help import general_response
 
 
 class CopilotState(TypedDict, total=False):
@@ -23,12 +24,18 @@ class CopilotState(TypedDict, total=False):
     clarification: str
 
 
-def choose_tool(question: str) -> Literal["lookup", "summary", "compare", "safety"]:
+def choose_tool(question: str) -> Literal["help", "lookup", "summary", "compare", "safety"]:
+    if general_response(question) is not None:
+        return 'help'
     return detect_intent(question).mode
 
 
 def make_graph(index: DocumentIndex):
     def router(state: CopilotState) -> CopilotState:
+        response = general_response(state['question'])
+        if response is not None:
+            return {'mode': 'help', 'answer': response, 'evidence': [],
+                    'resolved_documents': [], 'candidates': [], 'clarification': ''}
         intent = detect_intent(state["question"])
         mode = intent.mode
         resolution = resolve_documents(
@@ -93,6 +100,7 @@ def make_graph(index: DocumentIndex):
     graph.add_node("generate", generate)
     graph.add_edge(START, "route")
     graph.add_conditional_edges("route", lambda state: state["mode"],
-                                {mode: mode for mode in ("lookup", "summary", "compare", "safety")})
+                                {**{mode: mode for mode in ("lookup", "summary", "compare", "safety")},
+                                 'help': END})
     graph.add_edge("generate", END)
     return graph.compile()

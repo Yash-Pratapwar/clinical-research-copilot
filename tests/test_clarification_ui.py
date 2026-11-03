@@ -53,7 +53,7 @@ def test_clarification_selection_and_followup(monkeypatch, question):
         def retrieve(self, question, **kwargs):
             calls.append((question, kwargs['filenames']))
             return [Evidence('source text', {'filename': f, 'location': 'Page 1',
-                             'section': 'Overview'}, 0.9, f) for f in kwargs['filenames']]
+                             'section': 'Overview'}, 0.9, f) for f in (kwargs['filenames'] or files)]
 
     st.cache_resource.clear()
     monkeypatch.setattr('copilot.index.DocumentIndex', Index)
@@ -71,12 +71,21 @@ def test_clarification_selection_and_followup(monkeypatch, question):
         assert not app.exception
         assert calls == [(question, [files[1], files[2]])]
         assert app.session_state['messages'][-1]['mode'] == 'compare'
+        assert any(b.label == 'Deselect documents' for b in app.button)
         app.chat_input[0].set_value('What about reporting requirements?').run()
         assert not app.exception
         assert calls[-1][1] == [files[1], files[2]]
-        next(b for b in app.button if b.label == 'Search the whole library instead').click().run()
+        assert any(b.label == 'Deselect documents' for b in app.button)
+        app.session_state['pending_question'] = 'Compare versions'
+        app.session_state['clarification_documents'] = [files[1], files[2]]
+        next(b for b in app.button if b.label == 'Deselect documents').click().run()
         assert not app.exception
         assert 'document_scope' not in app.session_state
+        assert 'pending_question' not in app.session_state
+        assert 'clarification_documents' not in app.session_state
+        app.chat_input[0].set_value('What are the reporting requirements?').run()
+        assert not app.exception
+        assert calls[-1][1] is None
     finally:
         st.cache_resource.clear()
 
