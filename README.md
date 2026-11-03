@@ -5,6 +5,28 @@
 multidocument comparison, and a transparent LangGraph tool router. **Not** a
 medical device, a validated clinical workflow, or a safe place for patient records.
 
+## Resolving document questions
+
+The app resolves document references before searching their contents. Exact
+filenames (with or without their extension) take precedence. Numbered versions
+and filename words identify candidates, but ambiguous candidates trigger a
+clarification instead of using vector similarity or a shared suffix to guess.
+This applies to arbitrary document names, not just protocols. A missing version
+or unknown explicit filename also requests clarification. General topic questions
+without a document reference can still search the whole library.
+
+When asked to clarify, select the documents and click **Answer using selected
+documents**, or reply with their exact names. The original question resumes
+against those files only, with balanced retrieval and a check for evidence from
+every selected document. The selected names appear with the answer and remain
+the scope for follow-ups. Use **Search the whole library instead** to clear that
+scope, or name different files. Clearing the index clears pending questions and
+document selections too. Existing indexed documents do not need re-indexing.
+
+Resolution currently uses indexed filenames and explicit user choices; it does
+not verify study identity, dates, or versions from document bodies. Use descriptive
+filenames including study identifiers, or select files explicitly when uncertain.
+
 ## The 8 GB Windows 11 setup
 
 | Component | Choice | Cost |

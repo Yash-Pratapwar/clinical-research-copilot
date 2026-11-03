@@ -108,11 +108,21 @@ class DocumentIndex:
                                         similarity=score, chunk_id=cid))
         return matches
 
-    def retrieve(self, question: str, *, mode: str = "lookup", limit: int = 9) -> list[Evidence]:
+    def retrieve(self, question: str, *, mode: str = "lookup", limit: int = 9,
+                 filenames: list[str] | None = None) -> list[Evidence]:
         """Broad queries + per-document top hits when cross-document evidence matters."""
         files = [f["filename"] for f in self.list_files()]
         if not files:
             return []
+        if filenames:
+            if any(name not in files for name in filenames):
+                raise ValueError('Selected documents are no longer available.')
+            if len(filenames) > limit:
+                raise ValueError(f'Please select at most {limit} documents for one question.')
+            groups = [self.query(question, filename=name, limit=limit) for name in filenames]
+            # Round-robin preserves representation for every selected source.
+            return [group[i] for i in range(max(map(len, groups), default=0))
+                    for group in groups if i < len(group)][:limit]
         variants = [question]
         if mode == "safety":
             variants += ["protocol required safety assessments reporting requirements",
