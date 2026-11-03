@@ -272,6 +272,73 @@ question, verifies `compare` before and after selection, and preserves the origi
 question. The targeted routing/core/resolution/UI suite passed **48 tests**.
 No full-suite run or performance benchmark was performed for this cache fix.
 
+## 11. Answer-specific source citations
+
+Problem: the former Supporting excerpts panel listed every retrieved passage,
+even when the generated answer did not cite it.
+
+Implementation: `copilot/citations.py` filters new and saved message sources to
+the `[S#]` IDs appearing in the answer, preserving IDs and stored filename,
+section, location and passage. The UI calls the panel **Source citations** and
+hides similarity scores. The prompt asks the model to cite only used sources.
+
+Benefit: readers can inspect the answer's explicit references without unrelated
+retrieval results. Limitation: this is not verified internal model attribution
+or sentence-level data selection. A passage can include surrounding context,
+and the model can still cite it incorrectly. No citation IDs means no panel.
+Two-version comparisons retain direct before/after provenance in the answer.
+No storage migration, embedding rebuild, model call or dependency was added.
+Validation at implementation: **104 tests passed**, including uncited-source,
+original-ID, unknown-ID, duplicate-reference and saved-message filtering cases.
+
+## 12. New chat without deleting the indexed library
+
+Problem: the existing library-clear control also deleted indexed documents,
+version history and retained originals when only a conversation reset was wanted.
+
+Final behavior: a single **New chat** sidebar button clears messages, the pending
+question and clarification choices, and explicitly sets the keyed example selector
+to **Choose an example...**. Document selection and indexed library remain.
+There is no separate Clear chat button or archive of previous conversations.
+**Deselect documents** remains the way to clear follow-up scope. **Clear index
+and conversation** retains its full-library deletion behavior.
+
+Benefit: users can clear conversation state and example selection without
+re-indexing. Limitation: the preserved document scope still limits subsequent
+questions until deselected; chat history is not durable storage. No new dependencies,
+schema migration, model calls or measurable indexing cost were introduced.
+Validation at final implementation: the targeted Streamlit regression test passed,
+checking cleared messages/pending choices, selector reset, preserved scope/library
+and absence of the separate Clear chat button.
+
+## 13. Current architecture and upload/version user guide
+
+Problem: the architecture handout still described word-window chunks and
+overwriting uploads, and the upload/version workflow lacked a dedicated guide.
+README and demo instructions also used obsolete controls or ambiguous filenames.
+
+Implementation: added [USER_GUIDE.md](docs/USER_GUIDE.md) covering uploads, labels,
+grouping, duplicates, original downloads, comparisons, citations, resets, backups
+and legacy recovery. Added [ARCHITECTURE.md](docs/ARCHITECTURE.md) as the editable
+source for the rebuilt two-page PDF and `docs/build_architecture.py` for repeatable
+ReportLab generation. Updated README, demo and troubleshooting links/instructions.
+Marked PDF/DOCX files binary in `.gitattributes` to prevent Git line-ending conversion
+from corrupting document bytes.
+
+Benefit: user steps and engineering documentation now describe the implemented
+version registry, full-text comparison and current UI. Limitations: documentation
+must be maintained as behavior changes; rebuilding the PDF requires ReportLab
+(already present locally, not added to the app runtime requirements). The optional
+retrieval fixture's `Protocol_v2.pdf` name mismatch is documented rather than
+silently presented as a passing evaluation. No application behavior, saved inputs,
+database schema or version identity changed in this documentation update.
+
+Validation: rebuilt and visually inspected both PDF pages; checked all six Markdown
+documents and 18 local links/anchors, PDF page count/text bounds, and whitespace.
+All **21 targeted tests passed** across citations, chat controls, help and
+clarification UI. No clinical benchmark or full-suite run was performed for this
+documentation update.
+
 ## Verification
 
 ### General app questions

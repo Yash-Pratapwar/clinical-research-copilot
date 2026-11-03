@@ -3,6 +3,50 @@
 Keep observed behavior, measurements, fixes, and practical troubleshooting tips
 here as the app evolves. Timings are observations, not performance guarantees.
 
+For the current upload and version workflow, see [USER_GUIDE.md](USER_GUIDE.md).
+For implementation and storage, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## 2026-11-04: Chat controls and source citations
+
+- **New chat** clears messages, pending questions and clarification choices,
+  and resets **Example questions** to **Choose an example...**. It preserves
+  indexed documents and the selected document scope. If the next question should
+  search all files, click **Deselect documents** too. There is no chat archive.
+- **Clear index and conversation** deletes the stored library, version history
+  and originals as well as resetting chat and scope. It is not needed for a new chat.
+- **Source citations** replaces the former Supporting excerpts label. Only source
+  IDs cited in the answer appear; missing numbers are expected because IDs are
+  not renumbered after filtering. No citation IDs means no citation panel.
+- A two-version chat comparison shows source names and locations directly in
+  before/after text; a separate citation panel is not expected on this path.
+- Filtering is not claim validation: cited passages may include extra context,
+  and a model can still cite the wrong evidence. Check originals.
+
+## 2026-11-04: Upload and version-history problems
+
+| Symptom | What to check |
+| --- | --- |
+| File selected but not listed | Click **Index selected documents** and inspect each result message. |
+| Already saved | Latest entry has the same filename/bytes and no new label; use a fresh label for an intentional repeat. |
+| Version label already exists | Choose a label unique within the selected history. |
+| Custom label rejected for several files | Select one file, or clear the label before a batch upload. |
+| Renamed revision grouped separately | Choose the intended **Version history** before uploading; automatic grouping uses filename markers, not document-body identity. Existing entries cannot be reassigned in the UI. |
+| Repeated filenames have suffixes | Use the unique displayed library name to select or ask about a saved version. |
+| Original unavailable / legacy comparison error | Re-upload the original file. An old chunk-only index cannot reconstruct it or recover earlier overwritten content. |
+| No extracted text differences | Text comparison found no changes; formatting/images may still differ. Verify the chosen Before/After entries. |
+| Repeated-content ambiguity warning | Check source locations and originals; automatic section identity remains heuristic. |
+| Empty, scanned, encrypted or oversize file | Use a nonempty searchable PDF or DOCX up to 15 MB; OCR and password-protected PDFs are unsupported. |
+
+For the bundled demo use explicit names such as `Protocol_v1_generated.pdf` and
+`Protocol_v2_generated.pdf`. The optional retrieval-check fixture currently names
+`Protocol_v2.pdf`, which is not a bundled file under that exact name. Align expected
+fixture names with the indexed library before interpreting that check's result;
+do not treat a name mismatch as loss of stored embeddings.
+
+Back up the complete configured database directory while the app is stopped.
+History SQLite, original blobs and Chroma data belong together. A normal refresh
+or restart does not require re-uploading, but it does not provide durable chat history.
+
 ## 2026-11-03: Slow first search
 
 The saved index opened quickly; loading the embedding model accounted for most

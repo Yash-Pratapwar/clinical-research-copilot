@@ -5,8 +5,17 @@
 multidocument comparison, and a transparent LangGraph tool router. **Not** a
 medical device, a validated clinical workflow, or a safe place for patient records.
 
-See [Troubleshooting and performance notes](docs/TROUBLESHOOTING_NOTES.md) for
-observed timings, index persistence, and fixes for common issues.
+## Documentation
+
+- [User guide: uploads, version history, comparisons, and chat](docs/USER_GUIDE.md)
+- [Technical architecture](docs/ARCHITECTURE.md) and [two-page PDF](docs/ARCHITECTURE.pdf)
+- [Demo script](docs/DEMO_SCRIPT.md)
+- [Troubleshooting and performance notes](docs/TROUBLESHOOTING_NOTES.md)
+- [Enhancements and validation history](enhancements.md)
+
+Documentation updated 4 November 2026. The user guide provides the full upload
+workflow, duplicate/version-label rules, original downloads, comparison steps,
+and the difference between resetting chat and deleting the library.
 
 ## Resolving document questions
 
@@ -22,7 +31,7 @@ When asked to clarify, select the documents and click **Answer using selected
 documents**, or reply with their exact names. The original question resumes
 against those files only, with balanced retrieval and a check for evidence from
 every selected document. The selected names appear with the answer and remain
-the scope for follow-ups. Use **Search the whole library instead** to clear that
+the scope for follow-ups. Use **Deselect documents** to clear that
 scope, or name different files. Clearing the index clears pending questions and
 document selections too. Existing indexed documents do not need re-indexing.
 
@@ -96,16 +105,21 @@ Open `http://localhost:8501` if the browser does not open automatically.
 The *first document index* downloads `all-MiniLM-L6-v2` to your Hugging Face
 cache. This requires internet access once, no Hugging Face subscription.
 
-### Step 4: reproduce the 5-minute demo
+### Step 4: reproduce the demo
 
-1. Upload all five files from `sample_docs/` using **Index selected documents**.
-   They are synthetic and do **not** contain real patient data.
+1. Upload `Protocol_v1_generated.pdf`, `Protocol_v2_generated.pdf`,
+   `Investigator_Brochure.pdf`, `Monitoring_Visit_Report.docx`, and
+   `Deviation_Log.docx` from `sample_docs/` using **Index selected documents**.
+   Leave the version label blank for a multi-file upload. These are synthetic;
+   the folder also contains additional fixtures, so it has more than five files.
 2. Ask: `What are the inclusion and exclusion criteria?`
 3. Ask: `What are the SAE reporting requirements?`
 4. Ask: `Which monitoring deviations may impact patient safety?`
-5. Ask: `Compare protocol version 1 and version 2.`
+5. Ask: `Compare Protocol_v1_generated.pdf and Protocol_v2_generated.pdf.`
 6. Expand **Source citations** to inspect document names, section and PDF
-   page number or DOCX paragraph location.
+   page number or DOCX paragraph/table location for generated answers. Only
+   explicitly cited source IDs appear. Two-version comparisons show before/after
+   names, locations, and full-text changes directly instead of a citation panel.
 7. Ask a question not in the documents, e.g., `What is the sponsor's phone number?`
    Correct behavior is to say the documents do not establish it.
 
@@ -116,8 +130,11 @@ cache. This requires internet access once, no Hugging Face subscription.
 .\.venv\Scripts\python.exe evaluation\run_retrieval_checks.py
 ```
 
-The retrieval check requires the demo files to have been indexed first. The
-`evaluation/expected_cases.json` describes expected source documents; manually
+The retrieval check requires its expected files to have been indexed first.
+`evaluation/expected_cases.json` describes expected source documents; its
+`Protocol_v2.pdf` entry currently differs from the bundled
+`Protocol_v2_generated.pdf` name, so align the fixture/library names before using
+that check as a pass/fail result. The named five-file UI demo above is separate; manually
 review the generated answers in the UI. Passing retrieval tests does **not**
 prove clinical correctness.
 
@@ -127,16 +144,15 @@ prove clinical correctness.
 Documents: PDF/DOCX -> ordered paragraphs/blocks -> tokenizer-bounded paragraph chunks
           -> MiniLM embeddings (CPU) -> local ChromaDB + source metadata
 
-Question: User -> LangGraph intent router
-                  |-- lookup   -> semantic retrieval
-                  |-- summary  -> expanded retrieval
-                  |-- compare  -> full-text diff for two versions; retrieval for larger selections
-                  |-- safety   -> protocol + monitoring + deviation retrieval
-          -> evidence prompt -> Ollama qwen2.5:1.5b -> answer + [S#] sources
-          -> UI renders source excerpt, filename and location from metadata
+Question -> predefined local help, OR LangGraph intent + document resolution
+          |-- ambiguous reference -> clarification -> resume original question
+          |-- exactly two versions + compare -> full-text diff -> direct answer
+          `-- lookup / summary / safety / larger compare -> scoped retrieval
+               -> evidence prompt -> Ollama qwen2.5:1.5b -> answer + [S#] IDs
+               -> only explicitly cited passages with stored source metadata
 ```
 
-The router is **deterministic** (keyword-based) rather than an autonomous
+The router is **deterministic** (intent words, context and limited typo tolerance) rather than an autonomous
 LLM agent. This is a deliberate, testable MVP decision; LangGraph still performs
 conditional tool selection. Don't market it as a self-directed clinical agent.
 
@@ -148,11 +164,19 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 - `copilot/embeddings.py`: Lazy, cached, local CPU embeddings.
 - `copilot/index.py`: Chroma persistence, idempotent ingestion, similarity search,
   diversity-enriched multi-document retrieval.
-- `copilot/workflow.py`: LangGraph intent router and four retrieval tools.
+- `copilot/workflow.py`: LangGraph routing, clarification, full-text comparisons and generation.
+- `copilot/routing.py` and `copilot/resolution.py`: intent and strict document resolution.
+- `copilot/help.py`: predefined local help without retrieval or generation.
+- `copilot/citations.py`: filters source entries to IDs cited in the answer.
+- `copilot/versions.py`: immutable version records and shared original-file storage.
+- `copilot/comparison.py`: full-section alignment and line/word differences.
+- `copilot/pdf_layout.py`: PDF geometry-based paragraph, heading, list and table extraction.
 - `copilot/llm.py`: Local Ollama prompt, evidence injection and allowed-source checks.
 - `tests/`: deterministic tests of parsing, routing, chunking, references, and indexing.
 - `evaluation/`: retrieval regression checks for synthetic documents.
-- `docs/ARCHITECTURE.pdf`: two-page engineering architecture handout.
+- `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.pdf`: current architecture and two-page handout.
+- `docs/build_architecture.py`: rebuilds the PDF from its Markdown source (requires ReportLab).
+- `docs/USER_GUIDE.md`: uploads, version history, comparison, source review and chat controls.
 - `docs/DEMO_SCRIPT.md`: suggested 5–10 minute video script.
 
 ## Design decisions and limitations
@@ -161,6 +185,8 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 - **Source citations show only passages referenced in the answer.**
   The code removes nonexistent source IDs and hides uncited retrieved passages, but a small
   LLM can still misinterpret, overstate or cite the wrong supporting passage.
+  Filtering tracks explicit source IDs, not internal model attribution. Passages
+  may include surrounding context beyond the particular data stated in the answer.
 - **PDF page vs DOCX paragraph:** PDF location is the actual file page. DOCX has
   no trustworthy physical page before rendering, so it reports paragraph/table
   locations rather than inventing page numbers.
@@ -178,13 +204,35 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 
 ## Submission checklist
 
+To rebuild the architecture handout after editing `docs/ARCHITECTURE.md`:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install reportlab
+.\.venv\Scripts\python.exe docs/build_architecture.py
+```
+
+ReportLab is a documentation-build dependency; the app does not require it.
+Check the generated PDF visually and keep the handout to two pages.
+
 - [ ] Upload repository to GitHub, excluding `.chroma`, `.venv`, `.env` and private data.
 - [ ] Attach `docs/ARCHITECTURE.pdf` (max. two pages).
 - [ ] Keep this README with setup, assumptions, limitations and enhancements.
 - [ ] Record `docs/DEMO_SCRIPT.md` as a 5–10 minute screen recording.
 - [ ] Do a fresh-machine setup test if possible.
 
+## Chat controls
+
+**New chat** clears messages, the pending question and clarification choices, and
+resets **Example questions** to **Choose an example...**. It preserves selected
+documents and all indexed versions, history, and originals. Chats are not archived.
+Use **Deselect documents** to search the whole library on your next question.
+**Clear index and conversation** deletes the library, history and retained
+originals as well as resetting the conversation and scope.
+
 ## Document version history
+
+For step-by-step uploads, version labels, duplicate-file behavior and examples,
+see the [user guide](docs/USER_GUIDE.md#save-another-version).
 
 Uploads create immutable version records in `.chroma/history/versions.sqlite3`.
 Changed uploads with the same filename preserve previous versions. Filename markers
@@ -203,7 +251,11 @@ Open **Version history and exact comparison**, select Before and After, and clic
 **Compare complete versions**. The comparison aligns full extracted sections and
 shows additions, removals, modifications, section moves, source locations and word
 changes. Two-document chat comparisons also use full text instead of vector search
-or an LLM. Section alignment first reserves normalized section-body SHA-256 matches, excluding\na leading heading line. Repeated bodies use headings, numeric parent sections,\nunique neighboring bodies and order to resolve identity; unresolved ties are flagged.\nRemaining sections use heading matching and then text similarity, followed by exact\nline and word differences. Hashes preserve case, numbers and punctuation;
+or an LLM. Section alignment first reserves normalized section-body SHA-256 matches,
+excluding a leading heading line. Repeated bodies use headings, numeric parent
+sections, unique neighboring bodies and order to resolve identity; unresolved ties
+are flagged. Remaining sections use heading matching and then text similarity,
+followed by exact line and word differences. Hashes preserve case, numbers and punctuation;
 check ambiguous matches against the downloadable originals. Formatting and images
 are outside this text comparison.
 

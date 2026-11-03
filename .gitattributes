@@ -1,0 +1,3 @@
+# Preserve binary document bytes regardless of the local line-ending setting.
+*.pdf binary
+*.docx binary

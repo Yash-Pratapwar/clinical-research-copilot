@@ -8,3 +8,5 @@ __pycache__/
 *.log
 .streamlit/secrets.toml
 .DS_Store
+docs/DEMO_SCRIPT.md
+docs/DEMO_SCRIPT.md
