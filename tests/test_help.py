@@ -56,7 +56,7 @@ def test_help_in_ui_preserves_document_context(monkeypatch, indexed):
         assert not app.exception
         message = app.session_state['messages'][-1]
         assert message['mode'] == 'help'
-        assert 'supporting excerpts and citations' in message['text']
+        assert 'source citations' in message['text']
         assert message['sources'] == []
         if indexed:
             assert app.session_state['document_scope'] == ['Protocol.pdf']

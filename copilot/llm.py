@@ -15,6 +15,7 @@ If the evidence is missing or inconclusive, clearly say 'The uploaded documents
 do not establish this.' If sources conflict, report the conflict and versions.
 Clearly distinguish what was observed from a potential risk, never assert harm.
 Use concise paragraphs or bullets. Cite supported statements using [S1], [S2], etc.
+Cite only sources actually used to support your answer; do not list unused evidence.
 These source IDs are valid ONLY if present in supplied evidence.
 Do not invent page numbers, sections, documents, or citations.
 """

@@ -4,7 +4,7 @@ import unicodedata
 
 
 CAPABILITIES = """I help you explore uploaded clinical research documents. I can:
-- Answer questions with supporting excerpts and citations.
+- Answer questions with source citations.
 - Summarize study protocols.
 - Compare document versions and show extracted text changes.
 - Review documented deviations and potential safety implications.
@@ -16,7 +16,7 @@ GETTING_STARTED = """To get started:
 1. Upload PDF or DOCX files in the Document library sidebar.
 2. Click **Index selected documents**.
 3. Ask a question, such as "What are the eligibility criteria?" or "Summarize the study protocol."
-4. Review the supporting excerpts and verify answers in the original documents.
+4. Review the source citations and verify answers in the original documents.
 
 To compare versions, upload both versions and ask to compare their exact filenames, or use **Version history and exact comparison**."""
 

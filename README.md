@@ -104,7 +104,7 @@ cache. This requires internet access once, no Hugging Face subscription.
 3. Ask: `What are the SAE reporting requirements?`
 4. Ask: `Which monitoring deviations may impact patient safety?`
 5. Ask: `Compare protocol version 1 and version 2.`
-6. Expand **Supporting excerpts** to inspect document names, section and PDF
+6. Expand **Source citations** to inspect document names, section and PDF
    page number or DOCX paragraph location.
 7. Ask a question not in the documents, e.g., `What is the sponsor's phone number?`
    Correct behavior is to say the documents do not establish it.
@@ -158,8 +158,8 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 ## Design decisions and limitations
 
 - **No paid API / no external RAG hosting.** Chroma and model execution are local; Chroma anonymized telemetry and Streamlit usage statistics are disabled.
-- **Citations are supporting excerpts, not independently verified factual claims.**
-  The code removes nonexistent source IDs and shows retrieved evidence, but a small
+- **Source citations show only passages referenced in the answer.**
+  The code removes nonexistent source IDs and hides uncited retrieved passages, but a small
   LLM can still misinterpret, overstate or cite the wrong supporting passage.
 - **PDF page vs DOCX paragraph:** PDF location is the actual file page. DOCX has
   no trustworthy physical page before rendering, so it reports paragraph/table

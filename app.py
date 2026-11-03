@@ -8,6 +8,7 @@ from copilot.index import DocumentIndex
 from copilot.workflow import make_graph
 from copilot.resolution import named_documents
 from copilot.help import general_response
+from copilot.citations import source_citations, cited_saved_sources
 
 st.set_page_config(page_title="Clinical Research AI Copilot", page_icon="🧬", layout="wide")
 
@@ -28,11 +29,25 @@ def get_workflow():
     # The expensive persistent index/model remains cached by get_index().
     return make_graph(get_index())
 
+
+def clear_chat(*, new_chat=False):
+    st.session_state.pop("messages", None)
+    st.session_state.pop("pending_question", None)
+    st.session_state.pop("clarification_documents", None)
+    st.session_state["example_question"] = "Choose an example..."
+    if new_chat:
+        st.session_state.pop("document_scope", None)
+
+
 st.title("🧬 Clinical Research AI Copilot")
 st.caption("100% local demo • PDF + DOCX • RAG citations • Multi-document reasoning • LangGraph routing")
 st.warning("Research document support only — not clinical decision-making. Use synthetic / authorized documents only.", icon="⚠️")
 
 with st.sidebar:
+    st.header("Chat")
+    st.button("New chat", use_container_width=True, on_click=clear_chat,
+              help="Clear messages, pending questions, and the example question selection while keeping your document selection and indexed documents.")
+    st.divider()
     st.header("Document library")
     st.caption(f"Local model: `{MODEL_NAME}`")
     st.caption("Embeddings and text are stored on this computer, not uploaded to a paid API.")
@@ -67,10 +82,7 @@ with st.sidebar:
         st.caption(f"📄 {file['filename']} · {file['chunks']} chunks")
     if st.button("Clear index and conversation", use_container_width=True):
         get_index().clear()
-        st.session_state.pop("messages", None)
-        st.session_state.pop("pending_question", None)
-        st.session_state.pop("document_scope", None)
-        st.session_state.pop("clarification_documents", None)
+        clear_chat(new_chat=True)
         st.rerun()
     st.divider()
     st.caption("This prototype has no authentication or access-control layer. Do not expose it publicly.")
@@ -127,18 +139,20 @@ examples = [
     "Compare protocol version 1 and version 2.",
     "Summarize the study protocol.",
 ]
-selection = st.selectbox("Example questions", ["Choose an example..."] + examples)
+selection = st.selectbox("Example questions", ["Choose an example..."] + examples,
+                         key="example_question")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["text"])
-        if msg.get("sources"):
-            with st.expander(f"Supporting excerpts ({len(msg['sources'])})"):
-                for source in msg["sources"]:
+        saved_sources = cited_saved_sources(msg["text"], msg.get("sources", []))
+        if saved_sources:
+            with st.expander(f"Source citations ({len(saved_sources)})"):
+                for source in saved_sources:
                     st.markdown(f"**{source['label']} — {source['filename']}**")
-                    st.caption(f"{source['location']} · {source['section']} · Similarity {source['score']:.2f}")
+                    st.caption(f"{source['location']} · {source['section']}")
                     st.write(source["excerpt"])
         if msg.get("mode"):
             st.caption(f"Tool selected: `{msg['mode']}`")
@@ -218,20 +232,16 @@ if question:
                     st.session_state.pop('pending_question', None)
                     if documents:
                         st.session_state.document_scope = documents
-                sources = [{
-                    "label": f"[S{i}]", "filename": ev.metadata["filename"],
-                    "location": ev.metadata["location"], "section": ev.metadata["section"],
-                    "score": ev.similarity, "excerpt": ev.text,
-                } for i, ev in enumerate(result.get("evidence", []), 1)]
+                sources = source_citations(answer, result.get("evidence", []))
                 st.markdown(answer)
                 st.caption(f"Tool selected: `{mode}`")
                 if documents:
                     st.caption('Selected documents: ' + ', '.join(documents))
                 if sources:
-                    with st.expander(f"Supporting excerpts ({len(sources)})", expanded=True):
+                    with st.expander(f"Source citations ({len(sources)})", expanded=True):
                         for source in sources:
                             st.markdown(f"**{source['label']} — {source['filename']}**")
-                            st.caption(f"{source['location']} · {source['section']} · Similarity {source['score']:.2f}")
+                            st.caption(f"{source['location']} · {source['section']}")
                             st.write(source["excerpt"])
             except Exception as exc:
                 answer = f"**Error:** {exc}"
@@ -252,4 +262,4 @@ else:
     st.caption('Search scope: all indexed documents.')
 
 st.divider()
-st.caption("Citation references are retrieved metadata, not model-generated page numbers. Similarity is not a factuality score; verify claims in original documents.")
+st.caption("Citation references are retrieved metadata, not model-generated page numbers. Only passages cited in the answer are listed; verify claims in original documents.")
