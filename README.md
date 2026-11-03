@@ -1,4 +1,4 @@
-# Clinical Research AI Copilot (100% local, free prototype)
+# Clinical Research AI Copilot
 
 **Purpose:** A PDF/DOCX document-search and question-answering prototype for the
 *Clinical Research AI Copilot Challenge*. It uses RAG, source-backed answers,
