@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from .index import DocumentIndex, Evidence
 from .llm import answer_question
 from .resolution import resolve_documents
+from .routing import detect_intent
 
 
 class CopilotState(TypedDict, total=False):
@@ -23,25 +24,23 @@ class CopilotState(TypedDict, total=False):
 
 
 def choose_tool(question: str) -> Literal["lookup", "summary", "compare", "safety"]:
-    q = question.lower()
-    if any(phrase in q for phrase in ("compare", "difference", "changed between", " vs ", " versus ", "amendment")):
-        return "compare"
-    if any(phrase in q for phrase in ("deviation", "patient safety", "safety impact", "safety risk", "monitoring observation", "monitoring visit")):
-        return "safety"
-    if any(phrase in q for phrase in ("summarize", "summary", "overview of the protocol", "study overview")):
-        return "summary"
-    return "lookup"
+    return detect_intent(question).mode
 
 
 def make_graph(index: DocumentIndex):
     def router(state: CopilotState) -> CopilotState:
-        mode = choose_tool(state["question"])
+        intent = detect_intent(state["question"])
+        mode = intent.mode
         resolution = resolve_documents(
             state['question'], [f['filename'] for f in index.list_files()],
             mode=mode, selected=state.get('selected_documents'),
             confirmed=state.get('selection_confirmed', False))
+        clarification = resolution.clarification
+        if intent.clarification and not state.get('selection_confirmed'):
+            clarification = intent.clarification
         return {"mode": mode, "resolved_documents": resolution.documents,
-                "candidates": resolution.candidates, "clarification": resolution.clarification}
+                "candidates": resolution.candidates or resolution.documents,
+                "clarification": clarification}
 
     def retrieve_for(mode: str):
         def _run(state: CopilotState) -> CopilotState:

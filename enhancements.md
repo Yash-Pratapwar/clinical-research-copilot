@@ -4,6 +4,12 @@ This document records the changes made during this work, their purpose, practica
 benefits, and limitations. Retrieval quality improvements are expected from better
 boundaries and traceability; they have not been measured on a clinical benchmark.
 
+Maintenance requirement: record every fix or enhancement in this file as part of
+the same change. Each entry must explain the problem, implementation, purpose,
+practical benefits, limitations/tradeoffs, and validation results. Distinguish
+measured results from expected improvements; note any dependencies, performance
+costs, persistence/migration effects, and remaining gaps where relevant.
+
 ## 1. Supported PyMuPDF import
 
 Replaced `import fitz` and `fitz.open` with `import pymupdf` and `pymupdf.open` in
@@ -194,6 +200,77 @@ originals need re-uploading.
 Also corrected section-body normalization to treat line breaks as whitespace and
 to recognize numbered heading/parent prefixes, avoiding false mismatches caused
 by wrapping or renumbering.
+
+## 9. Typo-tolerant intent routing and confirmation
+
+Problem: a question such as `whats the differenc between version 1 and 2` was
+routed to a similarity lookup instead of a comparison. When retrieval returned
+evidence from only one selected version, the evidence guard reported insufficient
+evidence. The saved index had not been lost. The initial spelling-specific fix
+has been replaced by general intent matching in `copilot/routing.py`.
+
+Implementation: normalize Unicode and case and tokenize punctuation/whitespace
+for routing only. Match exact intent words/phrases first, then allow one edit
+(insertion, deletion, substitution, or adjacent transposition) across a phrase.
+Approximate matching requires words of at least five characters and an early
+action position, a multiword phrase, or comparison context. Version pairs,
+multiple explicit filenames, and `between` provide comparison context. Short
+tokens such as `vs` require exact matches. Comparison, summary, and safety
+intents use the same matching mechanism.
+
+Weaker two-edit comparison hints with context, or conflicting approximate
+intents, request confirmation before retrieval or generation. The existing
+document-selection flow confirms a comparison and resumes the original question.
+The router excludes filename tokens from intent matching; document identity
+resolution remains strict and a mistyped explicit filename requests clarification.
+The user's original question is preserved for retrieval, generation, and display.
+
+Purpose and benefits: tolerate ordinary typing errors without maintaining a list
+of every misspelling, preserve the full-text comparison path, and prevent uncertain
+intent guesses from silently selecting an operation or document. This is routing
+tolerance, not spelling correction of clinical text or document names.
+
+Limitations/tradeoffs: intent vocabulary and context rules remain deterministic
+heuristics, not general language understanding. Some valid phrasings and larger
+errors still fall back to lookup; a close ordinary word may be mistaken for an
+intent. Exact intent matches retain the existing comparison/safety/summary
+priority. Conflicting approximate intents use the comparison-confirmation prompt;
+there is no general intent-choice UI. Filename suggestions are not fuzzy-matched.
+Matching adds small edit-distance calculations; runtime overhead has not been
+benchmarked. No dependencies or model calls were added, and no stored documents,
+embeddings, database schema, or migration behavior changed.
+
+Validation: **46 relevant tests passed** across routing, resolution, core behavior,
+and Streamlit UI tests. Coverage includes omitted characters, transpositions,
+normalization, unrelated words, intent-like filenames, strict filename identity,
+uncertain-intent confirmation, retrieval/generation bypass before confirmation,
+and preservation of the original question when resumed. This was a targeted
+suite, not a full-suite run or a measured accuracy benchmark.
+
+## 10. Refresh workflow routing after code updates
+
+Problem: the UI could retain a compiled workflow with old routing functions after
+imported source code changed. This explains how a spelling accepted by the new
+router could still show `Tool selected: lookup` in a running session. The reported
+question was `whats the differenc between version 1 and 2`.
+
+Implementation: removed resource caching from `get_workflow()` in `app.py`.
+Each invocation builds the lightweight graph from the currently imported factory.
+The expensive document index and embedding model retain their existing caches;
+saved documents and embeddings are not deleted or rebuilt by this change.
+
+Purpose and benefit: avoid reusing graph closures tied to obsolete routing modules
+after a source reload. No new dependencies or model calls are added. Tradeoff:
+graph construction repeats when a question is processed; its overhead has not been
+benchmarked. Normal source reload must still occur, and previously displayed chat
+answers remain unchanged. This does not expand spelling tolerance beyond section 9.
+
+Validation: a Streamlit regression test replaces the workflow factory between
+questions without clearing resource caches and verifies that the next answer uses
+the updated factory. The document-selection UI test also exercises the reported
+question, verifies `compare` before and after selection, and preserves the original
+question. The targeted routing/core/resolution/UI suite passed **48 tests**.
+No full-suite run or performance benchmark was performed for this cache fix.
 
 ## Verification
 

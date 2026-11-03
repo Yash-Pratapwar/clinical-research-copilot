@@ -1,12 +1,48 @@
 from pathlib import Path
 
 import streamlit as st
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from copilot.index import Evidence
 
 
-def test_clarification_selection_and_followup(monkeypatch):
+def test_rerun_uses_updated_workflow_factory(monkeypatch):
+    class Index:
+        def list_files(self):
+            return [{'filename': 'Protocol.pdf', 'chunks': 1}]
+
+    class Workflow:
+        def __init__(self, answer):
+            self.answer = answer
+
+        def invoke(self, state):
+            return {'answer': self.answer, 'mode': 'lookup'}
+
+    st.cache_resource.clear()
+    monkeypatch.setattr('copilot.index.DocumentIndex', Index)
+    monkeypatch.setattr('copilot.workflow.make_graph', lambda index: Workflow('Old workflow'))
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=20)
+    try:
+        app.run()
+        app.chat_input[0].set_value('First question').run()
+        assert not app.exception
+        assert app.session_state['messages'][-1]['text'] == 'Old workflow'
+        # Simulate the updated factory imported after a source-module reload.
+        # Do not clear resource caches: the real app keeps its index cached.
+        monkeypatch.setattr('copilot.workflow.make_graph', lambda index: Workflow('Updated workflow'))
+        app.chat_input[0].set_value('Second question').run()
+        assert not app.exception
+        assert app.session_state['messages'][-1]['text'] == 'Updated workflow'
+    finally:
+        st.cache_resource.clear()
+
+
+@pytest.mark.parametrize('question', [
+    'Compare manual version 1 and 2',
+    'whats the differenc between version 1 and 2',
+])
+def test_clarification_selection_and_followup(monkeypatch, question):
     files = ['Manual_v1.pdf', 'Manual_v1_copy.pdf', 'Manual_v2.pdf']
     calls = []
 
@@ -25,14 +61,16 @@ def test_clarification_selection_and_followup(monkeypatch):
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py'), default_timeout=20)
     try:
         app.run()
-        app.chat_input[0].set_value('Compare manual version 1 and 2').run()
+        app.chat_input[0].set_value(question).run()
         assert not app.exception
         assert not calls
-        assert app.session_state['pending_question'] == 'Compare manual version 1 and 2'
+        assert app.session_state['pending_question'] == question
+        assert app.session_state['messages'][-1]['mode'] == 'compare'
         app.multiselect[0].set_value([files[1], files[2]])
         next(b for b in app.button if b.label == 'Answer using selected documents').click().run()
         assert not app.exception
-        assert calls == [('Compare manual version 1 and 2', [files[1], files[2]])]
+        assert calls == [(question, [files[1], files[2]])]
+        assert app.session_state['messages'][-1]['mode'] == 'compare'
         app.chat_input[0].set_value('What about reporting requirements?').run()
         assert not app.exception
         assert calls[-1][1] == [files[1], files[2]]

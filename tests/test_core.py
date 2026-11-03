@@ -17,6 +17,9 @@ def test_routes():
     assert choose_tool('What are inclusion criteria?') == 'lookup'
     assert choose_tool('Summarize protocol') == 'summary'
     assert choose_tool('Compare protocol v1 vs v2') == 'compare'
+    assert choose_tool('whats the differenc between version 1 and 2') == 'compare'
+    assert choose_tool('What is the diffrence between v1 and v2?') == 'compare'
+    assert choose_tool('How do version 1 and 2 differ?') == 'compare'
     assert choose_tool('Which monitoring deviations may impact patient safety?') == 'safety'
 
 

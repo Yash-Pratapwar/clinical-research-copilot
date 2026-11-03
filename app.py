@@ -10,12 +10,21 @@ from copilot.resolution import named_documents
 
 st.set_page_config(page_title="Clinical Research AI Copilot", page_icon="🧬", layout="wide")
 
+# Reserve scroll space so the pinned composer cannot obscure the last controls.
+st.markdown("""
+<style>
+    [data-testid="stMainBlockContainer"] { padding-bottom: 10rem; }
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource(show_spinner=False)
 def get_index() -> DocumentIndex:
     return DocumentIndex()
 
-@st.cache_resource(show_spinner=False)
 def get_workflow():
+    # Graph nodes close over imported routing functions. Rebuild on rerun so
+    # code reloads cannot reuse a graph carrying an older module's functions.
+    # The expensive persistent index/model remains cached by get_index().
     return make_graph(get_index())
 
 st.title("🧬 Clinical Research AI Copilot")
@@ -160,6 +169,7 @@ if st.session_state.get('pending_question'):
         st.session_state.pop('pending_question', None)
         st.rerun()
 
+# A top-level chat input stays pinned below the scrolling conversation.
 question = st.chat_input("Ask about your uploaded study documents...")
 display_question = question
 if question and st.session_state.get('pending_question'):

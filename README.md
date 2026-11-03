@@ -5,6 +5,9 @@
 multidocument comparison, and a transparent LangGraph tool router. **Not** a
 medical device, a validated clinical workflow, or a safe place for patient records.
 
+See [Troubleshooting and performance notes](docs/TROUBLESHOOTING_NOTES.md) for
+observed timings, index persistence, and fixes for common issues.
+
 ## Resolving document questions
 
 The app resolves document references before searching their contents. Exact

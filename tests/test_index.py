@@ -103,6 +103,29 @@ def test_exact_comparison_bypasses_retrieval_and_llm(tmp_path, monkeypatch):
     assert '24 hours' in result['answer'] and '48 hours' in result['answer']
 
 
+def test_misspelled_comparison_after_reopening_index(tmp_path, monkeypatch):
+    from copilot.workflow import make_graph
+
+    path = tmp_path / 'chroma'
+    index = DocumentIndex(path=path, embedder=FakeEmbeddings())
+    index.add_file('Protocol_v1.docx', docx_bytes('Report within 24 hours.'))
+    index.add_file('Protocol_v2.docx', docx_bytes('Report within 48 hours.'))
+    count = index.collection.count()
+
+    reopened = DocumentIndex(path=path, embedder=FakeEmbeddings())
+    assert reopened.collection.count() == count > 0
+    assert reopened.query('Report within', filename='Protocol_v1.docx', threshold=-1)
+    monkeypatch.setattr(reopened, 'retrieve', lambda *a, **k: (_ for _ in ()).throw(AssertionError('no retrieval')))
+    monkeypatch.setattr('copilot.workflow.answer_question', lambda *a, **k: (_ for _ in ()).throw(AssertionError('no model')))
+    result = make_graph(reopened).invoke({
+        'question': 'whats the differenc between version 1 and 2',
+        'selected_documents': ['Protocol_v1.docx', 'Protocol_v2.docx'],
+        'selection_confirmed': True,
+    })
+    assert result['mode'] == 'compare'
+    assert '24 hours' in result['answer'] and '48 hours' in result['answer']
+
+
 def test_legacy_index_preserved_and_reupload_recovers_original(tmp_path):
     import hashlib
     import pytest

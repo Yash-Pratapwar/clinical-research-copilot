@@ -79,6 +79,32 @@ class StubIndex:
         return [Evidence('source', {'filename': n}, 0.9, n) for n in kwargs['filenames']]
 
 
+def test_uncertain_spelling_waits_for_confirmation(monkeypatch):
+    questions = []
+    monkeypatch.setattr('copilot.workflow.answer_question',
+                        lambda question, *a, **k: questions.append(question) or 'Answer')
+    index = StubIndex()
+    question = 'What is the diferenc between version 1 and 2?'
+    graph = make_graph(index)
+    pending = graph.invoke({'question': question, 'selected_documents': FILES[2:]})
+    assert pending['clarification']
+    assert not index.calls and not questions
+    result = graph.invoke({'question': question, 'selected_documents': FILES[2:],
+                           'selection_confirmed': True})
+    assert not result['clarification']
+    assert result['mode'] == 'compare'
+    assert questions == [question]
+
+
+def test_typo_in_filename_is_not_silently_corrected(monkeypatch):
+    monkeypatch.setattr('copilot.workflow.answer_question', lambda *a, **k: pytest.fail('must clarify'))
+    index = StubIndex()
+    result = make_graph(index).invoke({
+        'question': 'Comapre Protcol_v1.pdf and Protocol_v2_generated.pdf'})
+    assert result['clarification']
+    assert not index.calls
+
+
 def test_clarification_bypasses_search_and_generation(monkeypatch):
     monkeypatch.setattr('copilot.workflow.answer_question', lambda *a, **k: pytest.fail('must not generate'))
     index = StubIndex()
