@@ -1,0 +1,6 @@
+[
+  {"question": "What are the inclusion criteria?", "must_find_filename": "Protocol_v1.pdf"},
+  {"question": "What are the SAE reporting requirements?", "must_find_filename": "Protocol_v1.pdf"},
+  {"question": "Which deviations could impact patient safety?", "must_find_filename": "Monitoring_Visit_Report.docx"},
+  {"question": "Compare protocol v1 and v2 changes", "must_find_filename": "Protocol_v2.pdf"}
+]
