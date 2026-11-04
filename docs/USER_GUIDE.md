@@ -141,7 +141,9 @@ and similarity scores are hidden, including when saved chat messages rerender.
 Filtering reflects the model's explicit citations; it does not verify which text
 internally influenced generation or prove every cited claim. A displayed passage
 can include context beyond the particular data stated in the answer. Unknown
-source IDs are removed, and an answer with no source IDs has no citation panel.
+source IDs are removed. If the model omits source IDs, the panel instead shows
+retrieved sources supplied to the model, with a notice that claim attribution
+is unverified. This fallback also applies to saved messages that retain sources.
 Check claims against the originals.
 
 ## New chat, deselection, and deleting the library

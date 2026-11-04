@@ -16,7 +16,9 @@ For implementation and storage, see [ARCHITECTURE.md](ARCHITECTURE.md).
   and originals as well as resetting chat and scope. It is not needed for a new chat.
 - **Source citations** replaces the former Supporting excerpts label. Only source
   IDs cited in the answer appear; missing numbers are expected because IDs are
-  not renumbered after filtering. No citation IDs means no citation panel.
+  not renumbered after filtering. Restored after reviewing `2be8df2` and `fe66c54`:
+  when citation IDs are missing, retrieved sources appear with an attribution
+  notice instead of being hidden. Source excerpts are visible below the answer.
 - A two-version chat comparison shows source names and locations directly in
   before/after text; a separate citation panel is not expected on this path.
 - Filtering is not claim validation: cited passages may include extra context,

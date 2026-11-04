@@ -1,6 +1,7 @@
 """Run with: python -m streamlit run app.py"""
 from __future__ import annotations
 
+import re
 import streamlit as st
 
 from copilot.config import MODEL_NAME
@@ -28,6 +29,19 @@ def get_workflow():
     # code reloads cannot reuse a graph carrying an older module's functions.
     # The expensive persistent index/model remains cached by get_index().
     return make_graph(get_index())
+
+
+def display_sources(answer, sources):
+    if not sources:
+        return
+    if not re.search(r'\[S\d+\]', answer):
+        st.info('The model did not mark individual citations. These are the retrieved '
+                'sources supplied to the model; their use for each claim is unverified.')
+    with st.expander(f"Source citations ({len(sources)})", expanded=True):
+        for source in sources:
+            st.markdown(f"**{source['label']} — {source['filename']}**")
+            st.caption(f"{source['location']} · {source['section']}")
+            st.write(source.get('excerpt', ''))
 
 
 def clear_chat(*, new_chat=False):
@@ -148,12 +162,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["text"])
         saved_sources = cited_saved_sources(msg["text"], msg.get("sources", []))
-        if saved_sources:
-            with st.expander(f"Source citations ({len(saved_sources)})"):
-                for source in saved_sources:
-                    st.markdown(f"**{source['label']} — {source['filename']}**")
-                    st.caption(f"{source['location']} · {source['section']}")
-                    st.write(source["excerpt"])
+        display_sources(msg['text'], saved_sources)
         if msg.get("mode"):
             st.caption(f"Tool selected: `{msg['mode']}`")
         if msg.get('documents'):
@@ -234,15 +243,10 @@ if question:
                         st.session_state.document_scope = documents
                 sources = source_citations(answer, result.get("evidence", []))
                 st.markdown(answer)
+                display_sources(answer, sources)
                 st.caption(f"Tool selected: `{mode}`")
                 if documents:
                     st.caption('Selected documents: ' + ', '.join(documents))
-                if sources:
-                    with st.expander(f"Source citations ({len(sources)})", expanded=True):
-                        for source in sources:
-                            st.markdown(f"**{source['label']} — {source['filename']}**")
-                            st.caption(f"{source['location']} · {source['section']}")
-                            st.write(source["excerpt"])
             except Exception as exc:
                 answer = f"**Error:** {exc}"
                 st.error(answer)
@@ -262,4 +266,4 @@ else:
     st.caption('Search scope: all indexed documents.')
 
 st.divider()
-st.caption("Citation references are retrieved metadata, not model-generated page numbers. Only passages cited in the answer are listed; verify claims in original documents.")
+st.caption("Source locations come from retrieved metadata. When the model omits citation markers, retrieved sources are shown for review. Verify claims in the original documents.")

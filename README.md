@@ -118,7 +118,8 @@ cache. This requires internet access once, no Hugging Face subscription.
 5. Ask: `Compare Protocol_v1_generated.pdf and Protocol_v2_generated.pdf.`
 6. Expand **Source citations** to inspect document names, section and PDF
    page number or DOCX paragraph/table location for generated answers. Only
-   explicitly cited source IDs appear. Two-version comparisons show before/after
+   explicitly cited source IDs appear when available; otherwise retrieved sources
+   are shown with an unverified-attribution notice. Two-version comparisons show before/after
    names, locations, and full-text changes directly instead of a citation panel.
 7. Ask a question not in the documents, e.g., `What is the sponsor's phone number?`
    Correct behavior is to say the documents do not establish it.
@@ -149,7 +150,7 @@ Question -> predefined local help, OR LangGraph intent + document resolution
           |-- exactly two versions + compare -> full-text diff -> direct answer
           `-- lookup / summary / safety / larger compare -> scoped retrieval
                -> evidence prompt -> Ollama qwen2.5:1.5b -> answer + [S#] IDs
-               -> only explicitly cited passages with stored source metadata
+               -> cited passages, or retrieved-source fallback, with stored metadata
 ```
 
 The router is **deterministic** (intent words, context and limited typo tolerance) rather than an autonomous
@@ -167,7 +168,7 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 - `copilot/workflow.py`: LangGraph routing, clarification, full-text comparisons and generation.
 - `copilot/routing.py` and `copilot/resolution.py`: intent and strict document resolution.
 - `copilot/help.py`: predefined local help without retrieval or generation.
-- `copilot/citations.py`: filters source entries to IDs cited in the answer.
+- `copilot/citations.py`: filters explicit citations and preserves retrieved sources when markers are missing.
 - `copilot/versions.py`: immutable version records and shared original-file storage.
 - `copilot/comparison.py`: full-section alignment and line/word differences.
 - `copilot/pdf_layout.py`: PDF geometry-based paragraph, heading, list and table extraction.
@@ -182,7 +183,9 @@ conditional tool selection. Don't market it as a self-directed clinical agent.
 ## Design decisions and limitations
 
 - **No paid API / no external RAG hosting.** Chroma and model execution are local; Chroma anonymized telemetry and Streamlit usage statistics are disabled.
-- **Source citations show only passages referenced in the answer.**
+- **Source citations remain visible when the model omits citation markers.**
+  In that case, retrieved sources supplied to the model are shown for review,
+  with a notice that their use for individual claims is unverified.
   The code removes nonexistent source IDs and hides uncited retrieved passages, but a small
   LLM can still misinterpret, overstate or cite the wrong supporting passage.
   Filtering tracks explicit source IDs, not internal model attribution. Passages

@@ -79,6 +79,9 @@ The workflow is rebuilt for each invocation; the index/model cache persists.
 citations, and removes unknown IDs. `copilot/citations.py` limits **Source citations**
 to IDs occurring in the answer, preserving IDs and showing stored filename,
 location, section and passage. Saved messages receive the same filtering.
+When no source markers occur, both new and saved answers show the supplied
+retrieved sources with an unverified-attribution notice, restoring the behavior
+before commit `fe66c54` instead of hiding the panel.
 Similarity scores are hidden. This is citation filtering, not proof of internal
 model attribution, claim correctness, or exact sentence-level evidence usage.
 
